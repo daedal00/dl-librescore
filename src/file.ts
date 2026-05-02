@@ -61,6 +61,10 @@ const getApiAuthNetwork = async (
     type: FileType,
     index: number
 ): Promise<string> => {
+    if (typeof document === "undefined") {
+        throw new Error("Cannot derive auth token in Node.js runtime");
+    }
+
     let numPages = 0;
     let pageCooldown = 25;
     if (!auths[type + index]) {
@@ -177,7 +181,7 @@ const getApiAuthNetwork = async (
                 if (auths.hasOwnProperty(type + index)) {
                     clearTimeout(timer);
                     clearInterval(interval);
-                    setInterval(
+                    setTimeout(
                         () => {
                             resolve(auths[type + index]);
                         },
@@ -224,6 +228,12 @@ export const getFileUrl = async (
         });
 
         if (!r.ok) {
+            if (typeof document === "undefined") {
+                throw new Error(
+                    `Failed to authorize ${type} download for score ${id}. MuseScore likely changed auth or blocked automated access.`
+                );
+            }
+
             auth = await getApiAuthNetwork(type, index);
             if (type === "img" && index === 0) {
                 // auth is the URL for the first page

@@ -30,8 +30,19 @@ const _exportPDFBrowser: _ExFn = async (
     return pdfArrayBuffer;
 };
 
-const _exportPDFNode: _ExFn = async (imgURLs, imgType, dimensions) => {
-    const imgBufs = await Promise.all(imgURLs.map((url) => fetchBuffer(url)));
+const _exportPDFNode = async (
+    imgURLs: string[],
+    imgType: "svg" | "png",
+    dimensions: Dimensions,
+    scoreUrl = ""
+) => {
+    const imgBufs = await Promise.all(
+        imgURLs.map((url) =>
+            fetchBuffer(url, {
+                headers: scoreUrl ? { Referer: scoreUrl } : undefined,
+            })
+        )
+    );
 
     const { generatePDF } = PDFWorker();
     const pdfArrayBuffer = (await generatePDF(
@@ -55,7 +66,20 @@ export const exportPDF = async (
 
     const rs = Array.from({ length: pageCount }).map(async (_, i) => {
         let url;
-        if (i === 0) {
+
+        if (isNodeJs && scoreUrl) {
+            // In CLI URL mode, always obtain page URLs through API auth flow.
+            // Static score_*.svg URLs are often blocked by anti-bot protection.
+            url = await getFileUrl(
+                scoreinfo.id,
+                "img",
+                scoreUrl,
+                i,
+                undefined,
+                setText,
+                pageCount
+            );
+        } else if (i === 0) {
             // The url to the first page is static. We don't need to use API to obtain it.
             url = sheet.thumbnailUrl;
             if (setText) {
@@ -80,7 +104,7 @@ export const exportPDF = async (
     if (!isNodeJs) {
         return _exportPDFBrowser(...args, setText);
     } else {
-        return _exportPDFNode(...args);
+        return _exportPDFNode(...args, scoreUrl);
     }
 };
 

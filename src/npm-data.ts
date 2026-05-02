@@ -12,7 +12,7 @@ export function isNpx(): boolean {
     return __dirname.match(IS_NPX_REG) !== null;
 }
 
-export function getSelfVer(): string {
+function getSelfVer(): string {
     return pkgVer;
 }
 

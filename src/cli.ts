@@ -11,6 +11,7 @@ import { fetchBuffer } from "./utils";
 import { isNpx, getVerInfo } from "./npm-data";
 import { getFileUrl } from "./file";
 import { exportPDF } from "./pdf";
+import { exportPdfViaBrowser } from "./browser-pdf";
 import i18nextInit, { i18next } from "./i18n/index";
 import { InputFileFormat } from "webmscore/schemas";
 
@@ -65,7 +66,7 @@ const argv: any = yargs(hideBin(process.argv))
         type: "string",
         description: i18next.t("cli_option_output_description"),
         requiresArg: true,
-        default: process.cwd(),
+        default: path.join(process.cwd(), "downloaded_files"),
     })
     .option("verbose", {
         alias: "v",
@@ -107,6 +108,32 @@ const createDirectoryIfNotExist = (input: string) => {
 
     if (!dirExists) {
         fs.mkdirSync(input, { recursive: true });
+    }
+};
+
+const isBrowserFallbackablePdfError = (err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /Failed to authorize img download|Cannot derive auth token/i.test(msg);
+};
+
+const savePdfViaBrowser = async (
+    scoreUrl: string,
+    outputDir: string,
+    spinner: import("ora").Ora,
+    verbose = false
+): Promise<void> => {
+    const { fileName, pdfData } = await exportPdfViaBrowser(scoreUrl, (text) => {
+        spinner.text = text;
+    });
+    const f = path.join(outputDir, `${fileName}.pdf`);
+    await fs.promises.writeFile(f, pdfData);
+    if (verbose) {
+        spinner.info(
+            i18next.t("cli_saved_message", {
+                file: chalk.underline(f),
+            })
+        );
+        spinner.start();
     }
 };
 
@@ -523,7 +550,36 @@ void (async () => {
 
         // validate musescore URL
         if (scoreinfo.id === 0) {
-            spinner.fail(i18next.t("cli_score_not_found"));
+            const wantsPdf = isInteractive
+                ? true
+                : argv.type.length === 1 && argv.type[0] === "pdf";
+
+            if (wantsPdf) {
+                if (isInteractive) {
+                    spinner.stop();
+                    const output = await getOutputDir(argv.output);
+                    spinner.start();
+                    argv.output = output;
+                }
+
+                createDirectoryIfNotExist(argv.output);
+                await savePdfViaBrowser(
+                    argv.input,
+                    argv.output,
+                    spinner,
+                    argv.verbose
+                );
+                spinner.succeed(i18next.t("cli_done_message"));
+                return;
+            }
+
+            if (scoreinfo.blockedByAntiBot) {
+                spinner.fail(
+                    "MuseScore blocked CLI access. Browser fallback currently supports PDF only."
+                );
+            } else {
+                spinner.fail(i18next.t("cli_score_not_found"));
+            }
             return;
         }
 
@@ -623,13 +679,27 @@ void (async () => {
                     }
                     case "pdf": {
                         fileExt = "pdf";
-                        fileData = Buffer.from(
-                            await exportPDF(
-                                scoreinfo,
-                                scoreinfo.sheet,
-                                argv.input
-                            )
-                        );
+                        try {
+                            fileData = Buffer.from(
+                                await exportPDF(
+                                    scoreinfo,
+                                    scoreinfo.sheet,
+                                    argv.input
+                                )
+                            );
+                        } catch (err) {
+                            if (!isBrowserFallbackablePdfError(err)) {
+                                throw err;
+                            }
+
+                            await savePdfViaBrowser(
+                                argv.input,
+                                argv.output,
+                                spinner,
+                                argv.verbose
+                            );
+                            return;
+                        }
                         break;
                     }
                 }
@@ -653,4 +723,8 @@ void (async () => {
         spinner.succeed(i18next.t("cli_done_message"));
         return;
     }
-})();
+})().catch((err) => {
+    // fallback for errors thrown before spinner is initialized
+    console.error(err?.message || String(err));
+    process.exitCode = 1;
+});

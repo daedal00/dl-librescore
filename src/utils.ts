@@ -5,16 +5,6 @@ export const escapeFilename = (s: string): string => {
     return s.replace(/[\s<>:{}"/\\|?*~.\0\cA-\cZ]+/g, "_");
 };
 
-export const getIndexPath = (id: number): string => {
-    const idStr = String(id);
-    // 获取最后三位，倒序排列
-    // x, y, z are the reversed last digits of the score id. Example: id 123456789, x = 9, y = 8, z = 7
-    // https://developers.musescore.com/#/file-urls
-    // "5449062" -> ["2", "6", "0"]
-    const indexN = idStr.split("").reverse().slice(0, 3);
-    return indexN.join("/");
-};
-
 const NODE_FETCH_HEADERS = {
     "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.2535.85",

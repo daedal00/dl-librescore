@@ -73,9 +73,55 @@ There are 4 different installable programs:
 
 ### Command-line tool
 
+#### Quick start (npx)
+
 1. Install [Node.js LTS](https://nodejs.org)
 2. Open a terminal (do _not_ open the Node.js application)
 3. Type `npx dl-librescore@latest`, then press `Enter ↵`
+
+#### Local build (development)
+
+1. Install [Node.js LTS](https://nodejs.org)
+2. Clone this repository and `cd` into it
+3. Run `npm install` to install dependencies
+4. Run `npm run build` to compile
+
+**Non-interactive** (provide URL and output type directly):
+```
+node ./dist/cli.js -i https://musescore.com/user/123/scores/456 -t pdf
+```
+Files are saved to `./downloaded_files/` by default. Override with `-o <dir>`.
+
+**Interactive mode** (prompts for URL, format, and output directory):
+```
+node ./dist/cli.js
+```
+
+**All options:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--input` | `-i` | MuseScore URL or path to local file/folder |
+| `--type` | `-t` | Output format(s): `pdf`, `mp3`, `midi`, `mscz`, `mscx`, `musicxml`, `flac`, `ogg` |
+| `--output` | `-o` | Output directory (default: `./downloaded_files`) |
+| `--verbose` | `-v` | Print each saved file path |
+
+#### PDF quality and the browser fallback
+
+When MuseScore's direct API is accessible the tool downloads PDFs at **~259 DPI** (raster). When blocked, it automatically falls back to a browser-based approach that produces a **true vector PDF** (infinite zoom, no pixelation) by:
+
+1. Opening the score in a headless Chromium browser via [SeleniumBase](https://seleniumbase.io)
+2. Downloading the score's SVG source files directly from MuseScore's CDN
+3. Converting SVG → vector PDF with [cairosvg](https://cairosvg.org) + [pypdf](https://pypdf.readthedocs.io)
+
+The fallback runs **automatically** — no extra steps needed. Prerequisites (installed once by [uv](https://docs.astral.sh/uv)):
+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python package manager
+- System library `libcairo` — for cairosvg SVG rendering
+  - Ubuntu/Debian: `sudo apt install libcairo2`
+  - macOS: `brew install cairo`
+
+If `libcairo` is not installed, the fallback produces 72 DPI screenshots instead of vector output.
 
 ### Webmscore website
 

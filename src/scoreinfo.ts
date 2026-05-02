@@ -84,6 +84,13 @@ export class ScoreInfoHtml extends ScoreInfo {
         return new SheetInfoHtml(this.html);
     }
 
+    get blockedByAntiBot(): boolean {
+        return (
+            /<title>\s*Just a moment\.\.\.\s*<\/title>/i.test(this.html) ||
+            /cf-browser-verification|cloudflare/i.test(this.html)
+        );
+    }
+
     static async request(
         url: string,
         _fetch = getFetch()
