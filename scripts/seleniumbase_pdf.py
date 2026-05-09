@@ -142,33 +142,59 @@ def main() -> int:
 
     executor = ThreadPoolExecutor(max_workers=8)
 
-    # UC mode + headless2 (stealth headless) + xvfb (virtual display for CI).
-    with SB(uc=True, xvfb=True, headless2=True, test=False) as sb:
+    # UC mode + xvfb only (headless2 conflicts with UC on CI; xvfb gives a real display).
+    with SB(uc=True, xvfb=True, test=False) as sb:
         # UC mode: open with reconnect to bypass Cloudflare/anti-bot.
-        sb.uc_open_with_reconnect(score_url, reconnect_time=4)
+        # 6s gives Cloudflare Turnstile time to auto-resolve.
+        sb.uc_open_with_reconnect(score_url, reconnect_time=6)
+        sb.sleep(2)
 
         status("Waiting for score to load…")
-        try:
-            sb.wait_for_element_present("meta[property='al:ios:url']", timeout=180)
-        except Exception:
-            current_title = sb.get_title()
-            # Cloudflare still showing?
-            if "Just a moment" in current_title:
-                status("Cloudflare challenge detected, reconnecting…")
-                sb.reconnect(5)
-                sb.wait_for_element_present("meta[property='al:ios:url']", timeout=180)
-            else:
-                # One more reconnect attempt just in case
-                sb.reconnect(3)
+        loaded = False
+        for attempt in range(3):
+            try:
+                sb.wait_for_element_present("meta[property='al:ios:url']", timeout=90)
+                loaded = True
+                break
+            except Exception:
+                title = ""
                 try:
-                    sb.wait_for_element_present("meta[property='al:ios:url']", timeout=60)
-                except Exception as e:
-                    status(f"Page title: {current_title}")
-                    body_preview = sb.execute_script(
-                        "return document.body?.innerText?.slice(0,500) || ''"
+                    title = sb.get_title()
+                except Exception:
+                    pass
+                status(f"Load attempt {attempt + 1} failed. Title: {title!r}")
+
+                # Cloudflare Turnstile / challenge page
+                if "Just a moment" in title or "challenge" in title.lower():
+                    status("Cloudflare challenge detected, clicking…")
+                    try:
+                        for selector in ["#challenge-stage", "input[type='checkbox']", ".cb-c"]:
+                            if sb.is_element_visible(selector):
+                                sb.uc_click(selector)
+                                break
+                    except Exception as click_err:
+                        status(f"Challenge click failed: {click_err}")
+                    sb.sleep(5)
+                elif attempt < 2:
+                    status("Reconnecting…")
+                    sb.reconnect(5)
+                    sb.sleep(2)
+                else:
+                    # Final attempt: log page state and bail
+                    try:
+                        body = sb.execute_script(
+                            "return document.body?.innerText?.slice(0,800) || ''"
+                        )
+                        status(f"Body preview: {body[:300]}")
+                    except Exception:
+                        pass
+                    raise TimeoutError(
+                        "Timed out waiting for MuseScore page to load. "
+                        "MuseScore/Cloudflare may be blocking the GitHub Actions IP."
                     )
-                    status(f"Body preview: {body_preview[:200]}")
-                    raise TimeoutError("Timed out waiting for MuseScore page to load") from e
+
+        if not loaded:
+            raise RuntimeError("Score page did not load.")
 
         # Brief pause for React hydration
         sb.sleep(1)
