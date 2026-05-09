@@ -565,9 +565,13 @@ void (async () => {
 
         // validate musescore URL
         if (scoreinfo.id === 0) {
-            const wantsPdf = isInteractive
-                ? true
-                : argv.type.length === 1 && argv.type[0] === "pdf";
+            // Robust PDF check: argv.type may be a string or array depending on yargs version
+            const requestedTypes = Array.isArray(argv.type)
+                ? argv.type
+                : argv.type
+                  ? [argv.type]
+                  : [];
+            const wantsPdf = isInteractive || requestedTypes.includes("pdf");
 
             if (wantsPdf) {
                 if (isInteractive) {
@@ -578,23 +582,36 @@ void (async () => {
                 }
 
                 createDirectoryIfNotExist(argv.output);
-                await savePdfViaBrowser(
-                    argv.input,
-                    argv.output,
-                    spinner,
-                    argv.verbose
-                );
-                spinner.succeed(i18next.t("cli_done_message"));
-                return;
+                try {
+                    await savePdfViaBrowser(
+                        argv.input,
+                        argv.output,
+                        spinner,
+                        argv.verbose
+                    );
+                    spinner.succeed(i18next.t("cli_done_message"));
+                    return;
+                } catch (browserErr) {
+                    spinner.fail(
+                        `Browser PDF fallback failed: ${
+                            browserErr instanceof Error
+                                ? browserErr.message
+                                : String(browserErr)
+                        }`
+                    );
+                    process.exitCode = 1;
+                    return;
+                }
             }
 
             if (scoreinfo.blockedByAntiBot) {
                 spinner.fail(
-                    "MuseScore blocked CLI access. Browser fallback currently supports PDF only."
+                    "MuseScore/Cloudflare blocked access. Try again later or use the browser fallback with PDF."
                 );
             } else {
                 spinner.fail(i18next.t("cli_score_not_found"));
             }
+            process.exitCode = 1;
             return;
         }
 

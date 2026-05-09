@@ -63,6 +63,7 @@ export class ScoreInfoHtml extends ScoreInfo {
     }
 
     get id(): number {
+        if (!this.html) return 0;
         const m = this.html.match(this.ID_REG);
         if (!m) return 0;
         return +m[1];
@@ -85,9 +86,13 @@ export class ScoreInfoHtml extends ScoreInfo {
     }
 
     get blockedByAntiBot(): boolean {
+        const h = this.html.toLowerCase();
         return (
-            /<title>\s*Just a moment\.\.\.\s*<\/title>/i.test(this.html) ||
-            /cf-browser-verification|cloudflare/i.test(this.html)
+            /<title>\s*just a moment/.test(this.html) ||
+            /<title>\s*attention required/.test(this.html) ||
+            /cf-browser-verification|cloudflare|turnstile|challenge-platform/.test(h) ||
+            h.includes("access denied") ||
+            h.includes("blocked")
         );
     }
 
@@ -96,9 +101,7 @@ export class ScoreInfoHtml extends ScoreInfo {
         _fetch = getFetch()
     ): Promise<ScoreInfoHtml> {
         const r = await _fetch(url);
-        if (!r.ok) return new ScoreInfoHtml("");
-
-        const html = await r.text();
+        const html = await r.text().catch(() => "");
         return new ScoreInfoHtml(html);
     }
 }
