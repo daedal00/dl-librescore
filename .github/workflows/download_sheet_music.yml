@@ -38,7 +38,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcairo2 xvfb
+          sudo apt-get install -y libcairo2 xvfb python3-tk python3-dev
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3

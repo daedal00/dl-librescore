@@ -55,7 +55,8 @@ export const exportPdfViaBrowser = async (
             if (code === 0) {
                 resolve({ stdout });
             } else {
-                reject(new Error(stderr.trim() || stdout.trim() || `uv exited with code ${code}`));
+                const msg = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
+                reject(new Error(msg || `uv exited with code ${code}`));
             }
         });
     });

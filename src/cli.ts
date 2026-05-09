@@ -666,6 +666,7 @@ void (async () => {
             return;
         }
 
+        let savedCount = 0;
         await Promise.all(
             types.map(async (type) => {
                 // download/generate file data
@@ -714,6 +715,7 @@ void (async () => {
                                     spinner,
                                     argv.verbose
                                 );
+                                savedCount++;
                                 return;
                             }
                             break;
@@ -740,6 +742,7 @@ void (async () => {
                     `${scoreinfo.fileName}.${fileExt}`
                 );
                 await fs.promises.writeFile(f, fileData);
+                savedCount++;
                 if (argv.verbose) {
                     spinner.info(
                         i18next.t("cli_saved_message", {
@@ -750,6 +753,11 @@ void (async () => {
             })
         );
 
+        if (savedCount === 0) {
+            spinner.fail("No files could be downloaded.");
+            process.exitCode = 1;
+            return;
+        }
         spinner.succeed(i18next.t("cli_done_message"));
         return;
     }
