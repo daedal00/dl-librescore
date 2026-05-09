@@ -169,8 +169,9 @@ def main() -> int:
 
     executor = ThreadPoolExecutor(max_workers=8)
 
-    # UC mode + xvfb (virtual display for CI). No headless2 — it conflicts with UC.
-    with SB(uc=True, xvfb=True, test=False) as sb:
+    # UC mode + headless2. Browser runs invisibly — no window, no dock icon.
+    # (xvfb is only needed on headless Linux CI; local machines have a real display.)
+    with SB(uc=True, headless2=True, test=False) as sb:
         # Try multiple reconnect strategies. On CI, Cloudflare may need extra time.
         loaded = False
         for attempt in range(4):
