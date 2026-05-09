@@ -11,11 +11,6 @@ Quality tiers (best → worst):
   1. Vector PDF  — SVG scores converted with cairosvg+pypdf (infinite zoom)
   2. ~259 DPI    — PNG scores embedded directly
   3. 72 DPI      — WebDriver element-screenshot fallback
-
-Performance:
-  - Image downloads run in parallel (8 workers) while the browser session
-    is still active so network latency overlaps with browser operations.
-  - Screenshots are taken only for pages whose download failed.
 """
 
 from __future__ import annotations
@@ -54,11 +49,12 @@ def _session(score_url: str, cookies: list[dict]) -> req_lib.Session:
     s = req_lib.Session()
     s.headers.update({
         "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ),
+        "Accept-Language": "en-US,en;q=0.9",
         "Referer": score_url,
-        "Accept": "image/svg+xml,image/png,image/*",
+        "Accept": "image/svg+xml,image/png,image/*,*/*",
     })
     for c in cookies:
         s.cookies.set(c["name"], c["value"])
@@ -70,7 +66,6 @@ def _is_svg(data: bytes, url: str) -> bool:
 
 
 def download_page(url: str | None, score_url: str, cookies: list[dict]) -> tuple[bytes, bool] | None:
-    """Fetch image bytes; return (data, is_svg) or None on any failure."""
     if not url:
         return None
     try:
@@ -92,7 +87,6 @@ def _pil_from_bytes(data: bytes) -> Image.Image:
 
 
 def _raster_pdf_page(img: Image.Image, w_pts: float, h_pts: float) -> bytes:
-    """Wrap a PIL image in a single-page reportlab PDF."""
     buf = BytesIO()
     c = canvas.Canvas(buf)
     c.setPageSize((w_pts, h_pts))
@@ -103,7 +97,6 @@ def _raster_pdf_page(img: Image.Image, w_pts: float, h_pts: float) -> bytes:
 
 
 def _vector_pdf_page(svg_data: bytes) -> bytes | None:
-    """Convert SVG bytes to a single-page vector PDF; return None on failure."""
     try:
         return cairosvg.svg2pdf(bytestring=svg_data)
     except Exception:
@@ -117,6 +110,40 @@ def _merge_pdf_pages(pages: list[bytes]) -> bytes:
     buf = BytesIO()
     w.write(buf)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare helpers
+# ---------------------------------------------------------------------------
+
+def is_cloudflare_page(sb) -> bool:
+    try:
+        title = sb.get_title()
+        body = sb.execute_script("return document.body?.innerText?.slice(0,300) || ''")
+        indicators = ["just a moment", "verify you are human", "challenge", "cf-browser-verification"]
+        text = (title + " " + body).lower()
+        return any(i in text for i in indicators)
+    except Exception:
+        return False
+
+
+def try_click_challenge(sb) -> bool:
+    """Try to click Cloudflare challenge checkbox via JavaScript."""
+    selectors = [
+        "input[type='checkbox']",
+        "#challenge-stage",
+        "#cf-turnstile",
+        ".cf-turnstile",
+        "[data-cf-challenge]",
+    ]
+    for sel in selectors:
+        try:
+            if sb.is_element_visible(sel):
+                sb.execute_script(f"document.querySelector('{sel}')?.click()")
+                return True
+        except Exception:
+            continue
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -142,61 +169,59 @@ def main() -> int:
 
     executor = ThreadPoolExecutor(max_workers=8)
 
-    # UC mode + xvfb only (headless2 conflicts with UC on CI; xvfb gives a real display).
+    # UC mode + xvfb (virtual display for CI). No headless2 — it conflicts with UC.
     with SB(uc=True, xvfb=True, test=False) as sb:
-        # UC mode: open with reconnect to bypass Cloudflare/anti-bot.
-        # 6s gives Cloudflare Turnstile time to auto-resolve.
-        sb.uc_open_with_reconnect(score_url, reconnect_time=6)
-        sb.sleep(2)
-
-        status("Waiting for score to load…")
+        # Try multiple reconnect strategies. On CI, Cloudflare may need extra time.
         loaded = False
-        for attempt in range(3):
+        for attempt in range(4):
+            reconnect_time = 6 + attempt * 4  # 6s, 10s, 14s, 18s
+            status(f"Page load attempt {attempt + 1}/4 (reconnect {reconnect_time}s)…")
+
+            if attempt == 0:
+                sb.uc_open_with_reconnect(score_url, reconnect_time=reconnect_time)
+            else:
+                sb.reconnect(reconnect_time)
+
+            # Give Cloudflare time to auto-resolve before checking anything
+            sb.sleep(min(reconnect_time // 2, 8))
+
+            if is_cloudflare_page(sb):
+                status("Cloudflare challenge detected, clicking…")
+                if try_click_challenge(sb):
+                    status("Clicked challenge, waiting…")
+                    sb.sleep(8)
+                else:
+                    status("No clickable challenge found, waiting longer…")
+                    sb.sleep(12)
+                continue
+
+            # Check if score page loaded
             try:
-                sb.wait_for_element_present("meta[property='al:ios:url']", timeout=90)
+                sb.wait_for_element_present("meta[property='al:ios:url']", timeout=60)
                 loaded = True
+                status("Score page loaded!")
                 break
             except Exception:
-                title = ""
-                try:
-                    title = sb.get_title()
-                except Exception:
-                    pass
-                status(f"Load attempt {attempt + 1} failed. Title: {title!r}")
-
-                # Cloudflare Turnstile / challenge page
-                if "Just a moment" in title or "challenge" in title.lower():
-                    status("Cloudflare challenge detected, clicking…")
-                    try:
-                        for selector in ["#challenge-stage", "input[type='checkbox']", ".cb-c"]:
-                            if sb.is_element_visible(selector):
-                                sb.uc_click(selector)
-                                break
-                    except Exception as click_err:
-                        status(f"Challenge click failed: {click_err}")
-                    sb.sleep(5)
-                elif attempt < 2:
-                    status("Reconnecting…")
-                    sb.reconnect(5)
-                    sb.sleep(2)
-                else:
-                    # Final attempt: log page state and bail
-                    try:
-                        body = sb.execute_script(
-                            "return document.body?.innerText?.slice(0,800) || ''"
-                        )
-                        status(f"Body preview: {body[:300]}")
-                    except Exception:
-                        pass
-                    raise TimeoutError(
-                        "Timed out waiting for MuseScore page to load. "
-                        "MuseScore/Cloudflare may be blocking the GitHub Actions IP."
-                    )
+                status("Meta tag not found yet, retrying…")
+                continue
 
         if not loaded:
-            raise RuntimeError("Score page did not load.")
+            # Final diagnostics
+            try:
+                final_title = sb.get_title()
+                body_preview = sb.execute_script(
+                    "return document.body?.innerText?.slice(0,1000) || ''"
+                )
+                status(f"Final title: {final_title}")
+                status(f"Body preview: {body_preview[:500]}")
+            except Exception as dbg_err:
+                status(f"Could not capture diagnostics: {dbg_err}")
+            raise TimeoutError(
+                "Timed out waiting for MuseScore page to load. "
+                "MuseScore/Cloudflare is likely blocking automated access from this IP."
+            )
 
-        # Brief pause for React hydration
+        # React hydration pause
         sb.sleep(1)
 
         title = sb.execute_script(
@@ -240,30 +265,28 @@ def main() -> int:
 
             img_urls.append(img_url)
 
-            # Fallback screenshot via WebDriver (CDP disabled so UC mode stays effective)
+            # Screenshot fallback
             sb.sleep(0.15)
             try:
                 el = sb.find_element('img[data-librescore-capture="1"]', timeout=2)
                 png_bytes = el.screenshot_as_png
                 fallback_shots.append(png_bytes)
-                # Clear the attribute so stale elements don't match again
                 sb.execute_script("arguments[0].removeAttribute('data-librescore-capture')", el)
             except Exception:
                 fallback_shots.append(None)
 
-        # Grab cookies after all page interactions so auth tokens are included
+        # Cookies for parallel downloads
         try:
             cookies_list = sb.get_cookies() or []
         except Exception:
             pass
 
-        # Kick off parallel downloads while browser is still alive
         for url in img_urls:
             dl_futures.append(
                 executor.submit(download_page, url, score_url, cookies_list)
             )
 
-    # Collect download results
+    # Process results
     status("Processing images…")
     dl_results: list[tuple[bytes, bool] | None] = [f.result() for f in dl_futures]
     executor.shutdown(wait=False)
@@ -277,7 +300,6 @@ def main() -> int:
     elif n_ok < page_count:
         status(f"Downloaded {n_ok}/{page_count} pages; screenshots used for the rest.")
 
-    # Reference page size in PDF points from the first screenshot
     ref_w, ref_h = 827.0, 1170.0
     for shot in fallback_shots:
         if shot:
