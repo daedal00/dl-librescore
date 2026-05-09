@@ -122,18 +122,31 @@ const savePdfViaBrowser = async (
     spinner: import("ora").Ora,
     verbose = false
 ): Promise<void> => {
-    const { fileName, pdfData } = await exportPdfViaBrowser(scoreUrl, (text) => {
-        spinner.text = text;
-    });
-    const f = path.join(outputDir, `${fileName}.pdf`);
-    await fs.promises.writeFile(f, pdfData);
-    if (verbose) {
-        spinner.info(
-            i18next.t("cli_saved_message", {
-                file: chalk.underline(f),
-            })
+    try {
+        const { fileName, pdfData } = await exportPdfViaBrowser(
+            scoreUrl,
+            (text) => {
+                spinner.text = text;
+            }
         );
-        spinner.start();
+        const f = path.join(outputDir, `${fileName}.pdf`);
+        await fs.promises.writeFile(f, pdfData);
+        if (verbose) {
+            spinner.info(
+                i18next.t("cli_saved_message", {
+                    file: chalk.underline(f),
+                })
+            );
+            spinner.start();
+        }
+    } catch (err) {
+        if (
+            err instanceof Error &&
+            err.message.includes("Browser PDF fallback requires 'uv'")
+        ) {
+            spinner.fail(err.message);
+        }
+        throw err;
     }
 };
 
@@ -287,9 +300,10 @@ void (async () => {
 
             if (isInteractive) {
                 if (argv.type) {
-                    argv.type[argv.type.findIndex((e) => e === "musicxml")] =
-                        "mxl";
-                    argv.type[argv.type.findIndex((e) => e === "midi")] = "mid";
+                    const mxlIdx = argv.type.indexOf("musicxml");
+                    if (mxlIdx !== -1) argv.type[mxlIdx] = "mxl";
+                    const midIdx = argv.type.indexOf("midi");
+                    if (midIdx !== -1) argv.type[midIdx] = "mid";
                     types = argv.type.map((e) =>
                         INDV_DOWNLOADS.findIndex((f) => f.fileExt === e)
                     );
@@ -443,9 +457,10 @@ void (async () => {
                 }
 
                 if (argv.type) {
-                    argv.type[argv.type.findIndex((e) => e === "musicxml")] =
-                        "mxl";
-                    argv.type[argv.type.findIndex((e) => e === "midi")] = "mid";
+                    const mxlIdx = argv.type.indexOf("musicxml");
+                    if (mxlIdx !== -1) argv.type[mxlIdx] = "mxl";
+                    const midIdx = argv.type.indexOf("midi");
+                    if (midIdx !== -1) argv.type[midIdx] = "mid";
                     types = argv.type.map((e) =>
                         INDV_DOWNLOADS.findIndex((f) => f.fileExt === e)
                     );
@@ -654,55 +669,70 @@ void (async () => {
         await Promise.all(
             types.map(async (type) => {
                 // download/generate file data
-                let fileExt: String;
-                let fileData: Buffer;
-                switch (type) {
-                    case "midi": {
-                        fileExt = "mid";
-                        const fileUrl = await getFileUrl(
-                            scoreinfo.id,
-                            "midi",
-                            argv.input
-                        );
-                        fileData = await fetchBuffer(fileUrl);
-                        break;
-                    }
-                    case "mp3": {
-                        fileExt = "mp3";
-                        const fileUrl = await getFileUrl(
-                            scoreinfo.id,
-                            "mp3",
-                            argv.input
-                        );
-                        fileData = await fetchBuffer(fileUrl);
-                        break;
-                    }
-                    case "pdf": {
-                        fileExt = "pdf";
-                        try {
-                            fileData = Buffer.from(
-                                await exportPDF(
-                                    scoreinfo,
-                                    scoreinfo.sheet,
-                                    argv.input
-                                )
+                let fileExt = "";
+                let fileData: Buffer | undefined;
+                try {
+                    switch (type) {
+                        case "midi": {
+                            fileExt = "mid";
+                            const fileUrl = await getFileUrl(
+                                scoreinfo.id,
+                                "midi",
+                                argv.input
                             );
-                        } catch (err) {
-                            if (!isBrowserFallbackablePdfError(err)) {
-                                throw err;
-                            }
-
-                            await savePdfViaBrowser(
-                                argv.input,
-                                argv.output,
-                                spinner,
-                                argv.verbose
-                            );
-                            return;
+                            fileData = await fetchBuffer(fileUrl);
+                            break;
                         }
-                        break;
+                        case "mp3": {
+                            fileExt = "mp3";
+                            const fileUrl = await getFileUrl(
+                                scoreinfo.id,
+                                "mp3",
+                                argv.input
+                            );
+                            fileData = await fetchBuffer(fileUrl);
+                            break;
+                        }
+                        case "pdf": {
+                            fileExt = "pdf";
+                            try {
+                                fileData = Buffer.from(
+                                    await exportPDF(
+                                        scoreinfo,
+                                        scoreinfo.sheet,
+                                        argv.input
+                                    )
+                                );
+                            } catch (err) {
+                                if (!isBrowserFallbackablePdfError(err)) {
+                                    throw err;
+                                }
+
+                                await savePdfViaBrowser(
+                                    argv.input,
+                                    argv.output,
+                                    spinner,
+                                    argv.verbose
+                                );
+                                return;
+                            }
+                            break;
+                        }
                     }
+                } catch (err) {
+                    if (argv.verbose) {
+                        spinner.fail(
+                            `${type.toUpperCase()}: ${
+                                err instanceof Error
+                                    ? err.message
+                                    : String(err)
+                            }`
+                        );
+                    }
+                    return;
                 }
+
+                if (!fileData) return;
 
                 // save to filesystem
                 const f = path.join(

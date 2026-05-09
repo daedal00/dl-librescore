@@ -123,6 +123,19 @@ The fallback runs **automatically** — no extra steps needed. Prerequisites (in
 
 If `libcairo` is not installed, the fallback produces 72 DPI screenshots instead of vector output.
 
+### GitHub Actions (no local install)
+
+You can run the downloader directly from GitHub — no Node.js, Python, or browser required on your machine.
+
+1. Go to the repository's **Actions** tab
+2. Select the **Download Sheet Music** workflow
+3. Click **Run workflow**
+4. Paste the MuseScore URL and pick a format (`pdf`, `midi`, or `mp3`)
+5. Click **Run workflow**
+6. When it finishes, download the artifact from the run summary
+
+> **Tip:** PDF is the most reliable format because it uses the browser-based vector fallback automatically. MIDI and MP3 depend on MuseScore's API auth, which may be blocked.
+
 ### Webmscore website
 
 1. Open [Webmscore](https://webmscore-pwa.librescore.org)

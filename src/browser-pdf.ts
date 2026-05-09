@@ -39,7 +39,18 @@ export const exportPdfViaBrowser = async (
             stderr += chunk.toString();
         });
 
-        child.on("error", reject);
+        child.on("error", (err) => {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+                reject(
+                    new Error(
+                        "Browser PDF fallback requires 'uv' (Python package manager). " +
+                            "Install it from https://docs.astral.sh/uv/getting-started/installation/"
+                    )
+                );
+            } else {
+                reject(err);
+            }
+        });
         child.on("close", (code) => {
             if (code === 0) {
                 resolve({ stdout });

@@ -12,29 +12,43 @@ const getSuffix = async (
     _fetch = getFetch()
 ): Promise<string | null> => {
     let suffixUrls: string[] = [];
+    const jsReg =
+        /link.+?href=["'](https:\/\/musescore\.com\/static\/public\/build\/musescore.*?(?:_es6)?\/20.+?\.js)["']/g;
+
     if (scoreUrl !== "") {
-        const response = await _fetch(scoreUrl);
-        const text = await response.text();
-        suffixUrls = [
-            ...text.matchAll(
-                /link.+?href=["'](https:\/\/musescore\.com\/static\/public\/build\/musescore.*?(?:_es6)?\/20.+?\.js)["']/g
-            ),
-        ].map((match) => match[1]);
-    } else {
-        suffixUrls = [
-            ...document.head.innerHTML.matchAll(
-                /link.+?href=["'](https:\/\/musescore\.com\/static\/public\/build\/musescore.*?(?:_es6)?\/20.+?\.js)["']/g
-            ),
-        ].map((match) => match[1]);
+        try {
+            const response = await _fetch(scoreUrl);
+            const text = await response.text();
+            suffixUrls = [...text.matchAll(jsReg)].map((match) => match[1]);
+        } catch {
+            // If the landing page itself fails, we have no suffix to extract
+            return null;
+        }
+    } else if (typeof document !== "undefined") {
+        suffixUrls = [...document.head.innerHTML.matchAll(jsReg)].map(
+            (match) => match[1]
+        );
     }
 
-    for (const url of suffixUrls) {
-        const response = await _fetch(url);
-        const text = await response.text();
+    // MuseScore changes minification frequently; try several patterns.
+    const patterns = [
+        /"([^"]+)"\)\.substr\(0,4\)/,
+        /"([^"]+)"\)\.slice\(0,4\)/,
+        /"([^"]+)"\)[^.]*\.(?:substr|slice)\(0,4\)/,
+    ];
 
-        const match = text.match(/"([^"]+)"\)\.substr\(0,4\)/);
-        if (match) {
-            return match[1];
+    for (const url of suffixUrls) {
+        try {
+            const response = await _fetch(url);
+            const text = await response.text();
+            for (const pattern of patterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+        } catch {
+            // Ignore individual bundle failures
         }
     }
 
@@ -207,47 +221,60 @@ export const getFileUrl = async (
     pageCount?: number
 ): Promise<string> => {
     const url = getApiUrl(id, type, index);
-    let auth = await getApiAuth(id, type, index, scoreUrl);
+    const suffix = await getSuffix(scoreUrl);
+
     if (setText && pageCount) {
         const percent = Math.round(((index + 1) / pageCount) * 83);
         setText(`${percent}%`);
     }
 
-    let r = await _fetch(url, {
-        headers: {
-            Authorization: auth,
-        },
-    });
+    // Build auth candidates: extracted suffix first, then hardcoded fallback.
+    const auths: string[] = [];
+    if (suffix) {
+        auths.push(md5(`${id}${type}${index}${suffix}`).slice(0, 4));
+    }
+    auths.push(md5(`${id}${type}${index}9654,4e`).slice(0, 4));
 
-    if (!r.ok) {
-        auth = md5(`${id}${type}${index}9654,4e`).slice(0, 4);
-        r = await _fetch(url, {
+    let lastResponse: Response | undefined;
+    for (const auth of auths) {
+        const r = await _fetch(url, {
             headers: {
                 Authorization: auth,
             },
         });
+        lastResponse = r;
+        if (r.ok) {
+            const { info } = await r.json();
+            return info.url as string;
+        }
+    }
 
-        if (!r.ok) {
-            if (typeof document === "undefined") {
-                throw new Error(
-                    `Failed to authorize ${type} download for score ${id}. MuseScore likely changed auth or blocked automated access.`
-                );
+    // In a browser we can observe UI interactions to steal the token.
+    if (typeof document !== "undefined") {
+        const auth = await getApiAuthNetwork(type, index);
+        if (type === "img" && index === 0) {
+            // auth is the URL for the first page
+            const r = await _fetch(auth);
+            if (r.ok) {
+                const { info } = await r.json();
+                return info.url as string;
             }
-
-            auth = await getApiAuthNetwork(type, index);
-            if (type === "img" && index === 0) {
-                // auth is the URL for the first page
-                r = await _fetch(auth);
-            } else {
-                r = await _fetch(url, {
-                    headers: {
-                        Authorization: auth,
-                    },
-                });
+        } else {
+            const r = await _fetch(url, {
+                headers: {
+                    Authorization: auth,
+                },
+            });
+            if (r.ok) {
+                const { info } = await r.json();
+                return info.url as string;
             }
         }
     }
 
-    const { info } = await r.json();
-    return info.url as string;
+    // Nothing worked.
+    const status = lastResponse?.status ?? "unknown";
+    throw new Error(
+        `Failed to authorize ${type} download for score ${id} (HTTP ${status}). MuseScore likely changed auth or blocked automated access.`
+    );
 };

@@ -1,0 +1,75 @@
+name: Download Sheet Music
+
+on:
+    workflow_dispatch:
+        inputs:
+            url:
+                description: "MuseScore URL (e.g. https://musescore.com/user/123/scores/456)"
+                required: true
+            type:
+                description: "Output format"
+                required: true
+                default: "pdf"
+                type: choice
+                options:
+                    - pdf
+                    - midi
+                    - mp3
+            output_name:
+                description: "Optional custom artifact name suffix"
+                required: false
+                default: ""
+
+jobs:
+    download:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libcairo2 xvfb chromium-browser
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v3
+              with:
+                  version: "latest"
+
+            - name: Install Node dependencies and build
+              run: |
+                  npm ci
+                  npm run build
+
+            - name: Download sheet music
+              id: download
+              run: |
+                  OUTDIR="./downloaded_files"
+                  mkdir -p "$OUTDIR"
+                  node ./dist/cli.js -i "${{ github.event.inputs.url }}" -t ${{ github.event.inputs.type }} -o "$OUTDIR" -v
+                  echo "files=$(ls -1 "$OUTDIR" | head -c 8000)" >> "$GITHUB_OUTPUT"
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: sheet-music-${{ github.run_id }}${{ github.event.inputs.output_name && '-' }}${{ github.event.inputs.output_name }}
+                  path: downloaded_files/*
+                  if-no-files-found: error
+
+            - name: Summary
+              run: |
+                  echo "## ✅ Download Complete" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- **URL:** ${{ github.event.inputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- **Format:** ${{ github.event.inputs.type }}" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- **Files:**" >> "$GITHUB_STEP_SUMMARY"
+                  echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+                  echo "${{ steps.download.outputs.files }}" >> "$GITHUB_STEP_SUMMARY"
+                  echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Download the artifact from the **Artifacts** section above." >> "$GITHUB_STEP_SUMMARY"
