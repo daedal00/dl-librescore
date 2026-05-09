@@ -1,17 +1,17 @@
 {
-    "eslint.options": {},
-    "eslint.validate": ["javascript", "typescript"],
-    "editor.tabSize": 2,
-    "javascript.format.insertSpaceBeforeFunctionParenthesis": true,
-    "typescript.format.insertSpaceBeforeFunctionParenthesis": true,
-    "javascript.format.insertSpaceAfterConstructor": true,
-    "typescript.format.insertSpaceAfterConstructor": true,
-    "[typescript]": {
-        "editor.formatOnSave": true
-    },
-    "editor.codeActionsOnSave": {
-        "source.fixAll.eslint": true
-    },
-    "typescript.tsdk": "node_modules/typescript/lib",
-    "i18n-ally.localesPaths": ["src/i18n"]
+  "eslint.options": {},
+  "eslint.validate": ["javascript", "typescript"],
+  "editor.tabSize": 2,
+  "javascript.format.insertSpaceBeforeFunctionParenthesis": true,
+  "typescript.format.insertSpaceBeforeFunctionParenthesis": true,
+  "javascript.format.insertSpaceAfterConstructor": true,
+  "typescript.format.insertSpaceAfterConstructor": true,
+  "[typescript]": {
+    "editor.formatOnSave": true
+  },
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "i18n-ally.localesPaths": ["src/i18n"]
 }

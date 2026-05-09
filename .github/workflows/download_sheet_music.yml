@@ -35,12 +35,13 @@ jobs:
             - name: Install system dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y libcairo2 xvfb chromium-browser
+                  sudo apt-get install -y libcairo2 xvfb
 
             - name: Install uv
               uses: astral-sh/setup-uv@v3
               with:
                   version: "latest"
+                  enable-cache: true
 
             - name: Install Node dependencies and build
               run: |
@@ -50,10 +51,24 @@ jobs:
             - name: Download sheet music
               id: download
               run: |
-                  OUTDIR="./downloaded_files"
-                  mkdir -p "$OUTDIR"
-                  node ./dist/cli.js -i "${{ github.event.inputs.url }}" -t ${{ github.event.inputs.type }} -o "$OUTDIR" -v
-                  echo "files=$(ls -1 "$OUTDIR" | head -c 8000)" >> "$GITHUB_OUTPUT"
+                  set +e
+                  for attempt in 1 2 3; do
+                      echo "::group::Attempt $attempt"
+                      rm -rf ./downloaded_files
+                      mkdir -p ./downloaded_files
+                      node ./dist/cli.js -i "${{ github.event.inputs.url }}" -t ${{ github.event.inputs.type }} -o ./downloaded_files -v
+                      exit_code=$?
+                      echo "::endgroup::"
+                      if [ $exit_code -eq 0 ]; then
+                          break
+                      fi
+                      if [ $attempt -eq 3 ]; then
+                          exit 1
+                      fi
+                      echo "Retrying in 15s…"
+                      sleep 15
+                  done
+                  echo "files=$(ls -1 ./downloaded_files | head -c 8000)" >> "$GITHUB_OUTPUT"
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4

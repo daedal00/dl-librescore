@@ -1,18 +1,19 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["seleniumbase", "pillow", "reportlab", "requests", "cairosvg", "pypdf"]
+# dependencies = ["seleniumbase>=4.27.0", "pillow", "reportlab", "requests", "cairosvg", "pypdf"]
 # ///
 
 """
 Download a MuseScore score as a high-quality PDF via browser automation.
+Uses SeleniumBase UC (undetected-chrome) mode for anti-bot bypass.
 
 Quality tiers (best → worst):
   1. Vector PDF  — SVG scores converted with cairosvg+pypdf (infinite zoom)
   2. ~259 DPI    — PNG scores embedded directly
-  3. 72 DPI      — screenshot fallback when download fails
+  3. 72 DPI      — WebDriver element-screenshot fallback
 
 Performance:
-  - Image downloads run in parallel (4 workers) while the browser session
+  - Image downloads run in parallel (8 workers) while the browser session
     is still active so network latency overlaps with browser operations.
   - Screenshots are taken only for pages whose download failed.
 """
@@ -43,21 +44,6 @@ except Exception:
 
 def status(msg: str) -> None:
     print(msg, flush=True)
-
-
-def wait_for_score(sb, timeout: int = 180) -> None:
-    end = time.time() + timeout
-    while time.time() < end:
-        try:
-            if (
-                sb.is_element_present("meta[property='al:ios:url']")
-                and "Just a moment" not in sb.get_title()
-            ):
-                return
-        except Exception:
-            pass
-        time.sleep(1)
-    raise TimeoutError("Timed out waiting for MuseScore page to load")
 
 
 # ---------------------------------------------------------------------------
@@ -146,25 +132,52 @@ def main() -> int:
     output_pdf = Path(sys.argv[2]).resolve()
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
 
-    status("Opening MuseScore in SeleniumBase CDP mode…")
+    status("Opening MuseScore with anti-bot bypass…")
 
     img_urls: list[str | None] = []
-    fallback_shots: list[bytes | None] = []   # 72-DPI screenshots, taken per-page
+    fallback_shots: list[bytes | None] = []
     dl_futures: list[Future] = []
     cookies_list: list[dict] = []
     title = "score"
 
-    executor = ThreadPoolExecutor(max_workers=4)
+    executor = ThreadPoolExecutor(max_workers=8)
 
-    with SB(uc=True, xvfb=True, headless=True, test=False) as sb:
-        sb.activate_cdp_mode(score_url)
-        wait_for_score(sb)
+    # UC mode + headless2 (stealth headless) + xvfb (virtual display for CI).
+    with SB(uc=True, xvfb=True, headless2=True, test=False) as sb:
+        # UC mode: open with reconnect to bypass Cloudflare/anti-bot.
+        sb.uc_open_with_reconnect(score_url, reconnect_time=4)
 
-        status("Loading score pages…")
+        status("Waiting for score to load…")
+        try:
+            sb.wait_for_element_present("meta[property='al:ios:url']", timeout=180)
+        except Exception:
+            current_title = sb.get_title()
+            # Cloudflare still showing?
+            if "Just a moment" in current_title:
+                status("Cloudflare challenge detected, reconnecting…")
+                sb.reconnect(5)
+                sb.wait_for_element_present("meta[property='al:ios:url']", timeout=180)
+            else:
+                # One more reconnect attempt just in case
+                sb.reconnect(3)
+                try:
+                    sb.wait_for_element_present("meta[property='al:ios:url']", timeout=60)
+                except Exception as e:
+                    status(f"Page title: {current_title}")
+                    body_preview = sb.execute_script(
+                        "return document.body?.innerText?.slice(0,500) || ''"
+                    )
+                    status(f"Body preview: {body_preview[:200]}")
+                    raise TimeoutError("Timed out waiting for MuseScore page to load") from e
+
+        # Brief pause for React hydration
+        sb.sleep(1)
+
         title = sb.execute_script(
             "return document.querySelector(\"meta[property='og:title']\")?.content"
             " || document.title || 'score'"
         )
+
         page_count = int(
             sb.execute_script(
                 "return window.UGAPP?.store?.page?.data?.score?.pages_count || 0"
@@ -172,24 +185,23 @@ def main() -> int:
         )
 
         if not page_count:
-            raise RuntimeError("No score pages found")
+            page_count = sb.execute_script("""
+                const scroller = document.querySelector('#jmuse-scroller-component');
+                return scroller ? scroller.children.length : 0;
+            """)
+            if not page_count:
+                raise RuntimeError("No score pages found")
 
         status(f"Collecting {page_count} page(s)…")
 
         for index in range(page_count):
-            # Scroll to each page progressively (top → bottom). React's virtual
-            # list loads a page's img when it enters the viewport; scrolling back
-            # up after a full pre-scroll doesn't re-trigger IntersectionObserver
-            # in headless mode, so no global pre-scroll is done here.
-            # URL and marker attribute are read in one atomic JS call to avoid
-            # a React re-render between find and read.
             img_url: str | None = None
-            for _ in range(30):
+            for _ in range(15):
                 img_url = sb.execute_script(f"""
                     (() => {{
                       const scroller = document.querySelector('#jmuse-scroller-component');
                       const page = scroller?.children?.[{index}];
-                      page?.scrollIntoView({{ block: 'center' }});
+                      page?.scrollIntoView({{ block: 'center', behavior: 'instant' }});
                       const img = page?.querySelector('img[src*="score_"]');
                       if (!img) return null;
                       img.setAttribute('data-librescore-capture', '1');
@@ -198,38 +210,34 @@ def main() -> int:
                 """)
                 if img_url:
                     break
-                time.sleep(0.5)
+                sb.sleep(0.3)
 
             img_urls.append(img_url)
 
-            # Screenshot taken immediately while the img is still marked.
-            time.sleep(0.3)
-            tmp_png = output_pdf.with_suffix(f".fallback{index}.png")
+            # Fallback screenshot via WebDriver (CDP disabled so UC mode stays effective)
+            sb.sleep(0.15)
             try:
-                sb.cdp.save_screenshot(
-                    str(tmp_png.name), folder=str(tmp_png.parent),
-                    selector='img[data-librescore-capture="1"]',
-                )
-                fallback_shots.append(tmp_png.read_bytes() if tmp_png.exists() else None)
-                tmp_png.unlink(missing_ok=True)
+                el = sb.find_element('img[data-librescore-capture="1"]', timeout=2)
+                png_bytes = el.screenshot_as_png
+                fallback_shots.append(png_bytes)
+                # Clear the attribute so stale elements don't match again
+                sb.execute_script("arguments[0].removeAttribute('data-librescore-capture')", el)
             except Exception:
                 fallback_shots.append(None)
 
-        # Grab cookies after all page interactions so any auth tokens set
-        # during scrolling are included.
+        # Grab cookies after all page interactions so auth tokens are included
         try:
             cookies_list = sb.get_cookies() or []
         except Exception:
             pass
 
-        # Kick off parallel downloads now. They run while the browser is still
-        # alive so any remaining browser cleanup overlaps with network I/O.
+        # Kick off parallel downloads while browser is still alive
         for url in img_urls:
             dl_futures.append(
                 executor.submit(download_page, url, score_url, cookies_list)
             )
 
-    # Collect download results (most were already done during the browser session).
+    # Collect download results
     status("Processing images…")
     dl_results: list[tuple[bytes, bool] | None] = [f.result() for f in dl_futures]
     executor.shutdown(wait=False)
@@ -243,13 +251,14 @@ def main() -> int:
     elif n_ok < page_count:
         status(f"Downloaded {n_ok}/{page_count} pages; screenshots used for the rest.")
 
-    # Reference page size in PDF points from the first screenshot (827×1170).
+    # Reference page size in PDF points from the first screenshot
     ref_w, ref_h = 827.0, 1170.0
-    if fallback_shots[0]:
-        w, h = Image.open(BytesIO(fallback_shots[0])).size
-        ref_w, ref_h = float(w), float(h)
+    for shot in fallback_shots:
+        if shot:
+            w, h = Image.open(BytesIO(shot)).size
+            ref_w, ref_h = float(w), float(h)
+            break
 
-    # Build per-page PDF buffers, then merge.
     status("Writing PDF…")
     pdf_pages: list[bytes] = []
 
@@ -261,7 +270,6 @@ def main() -> int:
                 if page:
                     pdf_pages.append(page)
                     continue
-                # cairosvg failed on this specific SVG — rasterise at natural resolution
                 try:
                     png_data = cairosvg.svg2png(bytestring=data, scale=1.0)
                     pdf_pages.append(_raster_pdf_page(_pil_from_bytes(png_data), ref_w, ref_h))
@@ -272,7 +280,6 @@ def main() -> int:
                 pdf_pages.append(_raster_pdf_page(_pil_from_bytes(data), ref_w, ref_h))
                 continue
 
-        # Fallback to screenshot for this page.
         if shot:
             pdf_pages.append(_raster_pdf_page(_pil_from_bytes(shot), ref_w, ref_h))
         else:
@@ -281,10 +288,6 @@ def main() -> int:
     if HAS_VECTOR:
         output_pdf.write_bytes(_merge_pdf_pages(pdf_pages))
     else:
-        # pypdf unavailable: write a reportlab PDF by re-reading each raster page.
-        # Each element of pdf_pages is already a single-page reportlab PDF whose
-        # sole image we need to extract.  Since we built them ourselves above we
-        # can reconstruct from fallback_shots directly.
         pdf = canvas.Canvas(str(output_pdf))
         for shot in fallback_shots:
             if shot:
