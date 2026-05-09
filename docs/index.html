@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LibreScore Downloader</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --success: #3fb950;
+      --danger: #f85149;
+      --warn: #d29922;
+      --radius: 12px;
+      --shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px;
+    }
+    .container {
+      width: 100%;
+      max-width: 520px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    header h1 {
+      font-size: 1.8rem;
+      margin: 0 0 6px;
+      letter-spacing: -0.5px;
+    }
+    header p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin: 14px 0 6px;
+      color: var(--text-muted);
+    }
+    label:first-child { margin-top: 0; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(88,166,255,0.15);
+    }
+    input::placeholder { color: #484f58; }
+    .hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .hint a { color: var(--accent); }
+    button.primary {
+      width: 100%;
+      margin-top: 18px;
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+      background: linear-gradient(180deg, var(--accent), #1f6feb);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: filter .15s, transform .05s;
+    }
+    button.primary:hover { filter: brightness(1.1); }
+    button.primary:active { transform: translateY(1px); }
+    button.primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      filter: grayscale(0.4);
+    }
+    .status {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 8px;
+      background: rgba(88,166,255,0.08);
+      border: 1px solid rgba(88,166,255,0.2);
+      font-size: 0.95rem;
+      display: none;
+    }
+    .status.show { display: block; }
+    .status.success { background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.25); }
+    .status.error { background: rgba(248,81,73,0.08); border-color: rgba(248,81,73,0.25); }
+    .status.warn { background: rgba(210,153,34,0.08); border-color: rgba(210,153,34,0.25); }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(88,166,255,0.3);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .result {
+      margin-top: 16px;
+    }
+    .artifact-link, .run-link {
+      display: block;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text);
+      margin-top: 8px;
+      transition: border-color .15s;
+      cursor: pointer;
+    }
+    .artifact-link:hover, .run-link:hover { border-color: var(--accent); }
+    .artifact-link strong { color: var(--accent); }
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .footer a { color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎼 Sheet Music Downloader</h1>
+      <p>Download MuseScore sheets as PDF, MIDI, or MP3</p>
+    </header>
+
+    <div class="card">
+      <form id="form">
+        <label for="token">GitHub Personal Access Token</label>
+        <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" required>
+        <div class="hint">
+          Needs <strong>Actions: Read & Write</strong> permission for this repo.
+          <a href="https://github.com/settings/tokens/new?scopes=repo&description=Sheet+Music+Downloader" target="_blank" rel="noopener">Create one →</a>
+          <br>Your token is stored only in your browser.
+        </div>
+
+        <label for="url">MuseScore URL</label>
+        <input type="url" id="url" placeholder="https://musescore.com/user/123/scores/456" required>
+        <div class="hint">Paste the full page URL of the score.</div>
+
+        <label for="format">Format</label>
+        <select id="format">
+          <option value="pdf" selected>PDF (most reliable)</option>
+          <option value="midi">MIDI</option>
+          <option value="mp3">MP3</option>
+        </select>
+        <div class="hint">PDF uses a browser fallback and works even when MuseScore blocks API access.</div>
+
+        <button type="submit" class="primary" id="submitBtn">Start Download</button>
+      </form>
+
+      <div id="status" class="status"></div>
+      <div id="result" class="result"></div>
+    </div>
+
+    <div class="footer">
+      Powered by <a href="https://github.com/LibreScore/dl-librescore" target="_blank" rel="noopener">dl-librescore</a>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const REPO = detectRepo();
+      const API_BASE = 'https://api.github.com';
+      const WORKFLOW_ID = 'download_sheet_music.yml';
+      const LS_KEY = 'dl_librescore_token';
+
+      const $ = id => document.getElementById(id);
+      const tokenInput = $('token');
+      const urlInput = $('url');
+      const formatSelect = $('format');
+      const submitBtn = $('submitBtn');
+      const statusBox = $('status');
+      const resultBox = $('result');
+
+      const saved = localStorage.getItem(LS_KEY);
+      if (saved) tokenInput.value = saved;
+
+      $('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const token = tokenInput.value.trim();
+        const url = urlInput.value.trim();
+        const format = formatSelect.value;
+        if (!token || !url) return;
+        localStorage.setItem(LS_KEY, token);
+        await startDownload(token, url, format);
+      });
+
+      function detectRepo() {
+        const host = window.location.hostname;
+        const path = window.location.pathname;
+        if (host.endsWith('.github.io')) {
+          const owner = host.split('.')[0];
+          const repo = path.split('/')[1] || '';
+          return { owner, repo };
+        }
+        const params = new URLSearchParams(window.location.search);
+        const o = params.get('owner');
+        const r = params.get('repo');
+        if (o && r) return { owner: o, repo: r };
+        return null;
+      }
+
+      function setStatus(html, type = '') {
+        statusBox.innerHTML = html;
+        statusBox.className = 'status show ' + type;
+      }
+      function clearResult() { resultBox.innerHTML = ''; }
+      function showResult(html) { resultBox.innerHTML = html; }
+
+      async function githubFetch(path, token, opts = {}) {
+        const res = await fetch(API_BASE + path, {
+          ...opts,
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': 'Bearer ' + token,
+            'X-GitHub-Api-Version': '2022-11-28',
+            ...(opts.headers || {})
+          }
+        });
+        if (!res.ok) {
+          let msg = res.status + ' ' + res.statusText;
+          try { msg = (await res.json()).message || msg; } catch {}
+          throw new Error(msg);
+        }
+        if (res.status === 204) return null;
+        return res.json();
+      }
+
+      async function startDownload(token, url, format) {
+        if (!REPO) {
+          setStatus('Cannot detect GitHub repo from URL. Please open this page from the project\'s GitHub Pages.', 'error');
+          return;
+        }
+        clearResult();
+        submitBtn.disabled = true;
+
+        try {
+          // 1. Find current latest run number so we can identify our new run
+          setStatus('<span class="spinner"></span> Checking repo…', '');
+          const beforeRuns = await githubFetch(
+            `/repos/${REPO.owner}/${REPO.repo}/actions/workflows/${WORKFLOW_ID}/runs?per_page=1`, token
+          );
+          const latestRunNumber = beforeRuns?.workflow_runs?.[0]?.run_number || 0;
+
+          // 2. Dispatch workflow
+          setStatus('<span class="spinner"></span> Triggering download…', '');
+          const dispatchPath = `/repos/${REPO.owner}/${REPO.repo}/actions/workflows/${WORKFLOW_ID}/dispatches`;
+          const res = await fetch(API_BASE + dispatchPath, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': 'Bearer ' + token,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              ref: 'master',
+              inputs: { url, type: format, output_name: '' }
+            })
+          });
+          if (!res.ok) {
+            let msg = res.status + ' ' + res.statusText;
+            try { msg = (await res.json()).message || msg; } catch {}
+            throw new Error(msg);
+          }
+
+          // 3. Find our new run (must have run_number > latestRunNumber)
+          setStatus('<span class="spinner"></span> Waiting for run to appear…', '');
+          const run = await findNewRun(token, latestRunNumber);
+          if (!run) {
+            setStatus('Could not locate the new run. <a class="run-link" href="' + workflowUrl() + '" target="_blank" rel="noopener">Check the Actions tab →</a>', 'warn');
+            submitBtn.disabled = false;
+            return;
+          }
+
+          const runPage = `https://github.com/${REPO.owner}/${REPO.repo}/actions/runs/${run.id}`;
+          setStatus('<span class="spinner"></span> Run <strong>#' + run.run_number + '</strong> started! <a href="' + runPage + '" target="_blank" rel="noopener">View on GitHub →</a>', '');
+
+          // 4. Poll until complete
+          const conclusion = await pollRun(token, run.id, run.run_number);
+          if (conclusion === 'success') {
+            const artifacts = await githubFetch(`/repos/${REPO.owner}/${REPO.repo}/actions/runs/${run.id}/artifacts`, token);
+            const artList = artifacts?.artifacts || [];
+            if (artList.length) {
+              setStatus('✅ Download ready!', 'success');
+              let html = '';
+              for (const art of artList) {
+                html += '<button class="artifact-link" data-url="' + escapeHtml(art.archive_download_url) + '" data-name="' + escapeHtml(art.name) + '">' +
+                  '<strong>📥 Download ' + escapeHtml(art.name) + '.zip</strong><br>' +
+                  '<span style="font-size:0.85rem;color:var(--text-muted);">Click to save</span>' +
+                  '</button>';
+              }
+              html += '<div style="margin-top:8px;font-size:0.85rem;color:var(--text-muted);">Or visit the <a href="' + runPage + '" target="_blank" rel="noopener">run page</a>.</div>';
+              showResult(html);
+              bindDownloads(token);
+            } else {
+              setStatus('✅ Run succeeded but no artifact was found.', 'warn');
+              showResult('<a class="run-link" href="' + runPage + '" target="_blank" rel="noopener">View run page →</a>');
+            }
+          } else if (conclusion === 'failure') {
+            setStatus('❌ The workflow failed. Check the logs for details.', 'error');
+            showResult('<a class="run-link" href="' + runPage + '" target="_blank" rel="noopener">View failure logs →</a>');
+          } else {
+            setStatus('⚠️ Run ended with status: ' + conclusion, 'warn');
+            showResult('<a class="run-link" href="' + runPage + '" target="_blank" rel="noopener">View run page →</a>');
+          }
+        } catch (err) {
+          setStatus('❌ ' + escapeHtml(err.message), 'error');
+        } finally {
+          submitBtn.disabled = false;
+        }
+      }
+
+      async function findNewRun(token, minRunNumber) {
+        const path = `/repos/${REPO.owner}/${REPO.repo}/actions/workflows/${WORKFLOW_ID}/runs?per_page=10`;
+        for (let i = 0; i < 15; i++) {
+          const data = await githubFetch(path, token);
+          if (data?.workflow_runs) {
+            const run = data.workflow_runs.find(r => r.run_number > minRunNumber);
+            if (run) return run;
+          }
+          await waitFor(2500);
+        }
+        return null;
+      }
+
+      async function pollRun(token, runId, runNumber) {
+        const path = `/repos/${REPO.owner}/${REPO.repo}/actions/runs/${runId}`;
+        for (let i = 0; i < 180; i++) {
+          const run = await githubFetch(path, token);
+          if (run.status === 'completed') {
+            return run.conclusion;
+          }
+          setStatus('<span class="spinner"></span> Run <strong>#' + runNumber + '</strong> is ' + run.status + '…', '');
+          await waitFor(5000);
+        }
+        throw new Error('Polling timed out. The run is still in progress.');
+      }
+
+      function workflowUrl() {
+        return `https://github.com/${REPO.owner}/${REPO.repo}/actions/workflows/${WORKFLOW_ID}`;
+      }
+
+      function bindDownloads(token) {
+        document.querySelectorAll('.artifact-link').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const url = btn.getAttribute('data-url');
+            const name = btn.getAttribute('data-name');
+            btn.style.opacity = '0.6';
+            btn.querySelector('strong').textContent = '⏳ Downloading…';
+            try {
+              const res = await fetch(url, {
+                headers: { 'Authorization': 'Bearer ' + token },
+                redirect: 'follow'
+              });
+              if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+              const blob = await res.blob();
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = name + '.zip';
+              a.click();
+              btn.querySelector('strong').textContent = '✅ Downloaded ' + name + '.zip';
+            } catch (err) {
+              btn.querySelector('strong').textContent = '❌ Download failed — click to open run page';
+              btn.onclick = () => window.open(workflowUrl(), '_blank');
+            } finally {
+              btn.style.opacity = '1';
+            }
+          });
+        });
+      }
+
+      function waitFor(ms) {
+        return new Promise(r => setTimeout(r, ms));
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+    })();
+  </script>
+</body>
+</html>

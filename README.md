@@ -123,9 +123,21 @@ The fallback runs **automatically** — no extra steps needed. Prerequisites (in
 
 If `libcairo` is not installed, the fallback produces 72 DPI screenshots instead of vector output.
 
-### GitHub Actions (no local install)
+### GitHub Actions & Web UI (no install)
 
-You can run the downloader directly from GitHub — no Node.js, Python, or browser required on your machine.
+The easiest way to download sheet music — no Node.js, Python, or browser extensions required.
+
+#### Option A: Web UI (easiest)
+
+1. Open the **[GitHub Pages site](https://librescore.github.io/dl-librescore/)**
+2. Paste your GitHub token (needs Actions read/write for this repo)
+3. Paste the MuseScore URL and pick a format
+4. Click **Start Download**
+5. Wait ~30–60 seconds and download the artifact when it appears
+
+> **Tip:** The token is saved only in your browser. Create one at [GitHub Settings → Tokens](https://github.com/settings/tokens/new?scopes=repo&description=Sheet+Music+Downloader).
+
+#### Option B: Actions tab
 
 1. Go to the repository's **Actions** tab
 2. Select the **Download Sheet Music** workflow
