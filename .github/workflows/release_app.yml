@@ -1,0 +1,63 @@
+name: Release Desktop App
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package release
+        run: |
+          mkdir -p release/dl-librescore
+          cp scripts/dl_librescore_app.py release/dl-librescore/
+          cp scripts/seleniumbase_pdf.py    release/dl-librescore/
+          cp scripts/launch.sh              release/dl-librescore/
+          cp scripts/launch.bat             release/dl-librescore/
+          chmod +x release/dl-librescore/launch.sh
+
+          cd release
+          zip -r dl-librescore-desktop.zip dl-librescore/
+
+          # Also create a tar.gz for macOS/Linux
+          tar -czf dl-librescore-desktop.tar.gz dl-librescore/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: "LibreScore Desktop ${{ github.event.inputs.version }}"
+          body: |
+            ## 📥 Download & Run
+
+            ### macOS / Linux
+            1. Extract `dl-librescore-desktop.tar.gz`
+            2. Double-click `launch.sh` (or run `./launch.sh` in Terminal)
+
+            ### Windows
+            1. Extract `dl-librescore-desktop.zip`
+            2. Double-click `launch.bat`
+
+            *First run installs `uv` automatically (~3 MB download).*
+            *Chrome is managed automatically by SeleniumBase.*
+
+            ### Format support
+            | Format | Method          | Reliability |
+            |--------|-----------------|-------------|
+            | PDF    | Browser fallback | ✅ Best     |
+            | MIDI   | Direct API       | ⚠️ May fail |
+            | MP3    | Direct API       | ⚠️ May fail |
+
+          files: |
+            release/dl-librescore-desktop.zip
+            release/dl-librescore-desktop.tar.gz

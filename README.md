@@ -24,6 +24,7 @@ There are 4 different installable programs:
 
 | Program                                                                            | MSCZ | MIDI | MP3 | PDF | Conversion |     | Windows | macOS | Linux | Android | iOS/iPadOS |
 | ---------------------------------------------------------------------------------- | ---- | ---- | --- | --- | ---------- | --- | ------- | ----- | ----- | ------- | ---------- |
+| [Desktop](#desktop-app)                  | ❌   | ❌   | ❌  | ✔️  | ❌         |     | ✔️      | ✔️    | ✔️    | ❌      | ❌         |
 | [App](#app)                             | ✔️   | ✔️   | ✔️  | ❌  | ❌         |     | ✔️      | ✔️    | ✔️    | ✔️      | ❌         |
 | [Userscript](#userscript)               | ❌   | ✔️   | ✔️  | ✔️  | ❌         |     | ✔️      | ✔️    | ✔️    | ✔️      | ✔️         |
 | [Command-line tool](#command-line-tool) | ❌   | ✔️   | ✔️  | ✔️  | ✔️         |     | ✔️      | ✔️    | ✔️    | ✔️      | ❌         |
@@ -31,6 +32,23 @@ There are 4 different installable programs:
 
 > Note: `Conversion` refers to the ability to convert files into other file types, including those not downloadable in the program.
 > Conversion types include: Individual Parts, PDF, PNG, SVG, MP3, WAV, FLAC, OGG, MIDI, MusicXML, MSCZ, and MSCX.
+
+### Desktop
+
+> ✅ Easiest option for PDF. Downloads ~3 MB, auto-installs everything, works on any internet connection.
+
+1. Go to the [latest release](https://github.com/LibreScore/dl-librescore/releases/latest) and download the package for your platform:
+   - **Windows:** `dl-librescore-desktop.zip`
+   - **macOS / Linux:** `dl-librescore-desktop.tar.gz`
+2. Extract and double-click the launcher:
+   - **Windows:** `launch.bat`
+   - **macOS:** `launch.sh` (right-click → Open if Gatekeeper blocks it)
+3. Paste a MuseScore URL and click **Download**
+4. The PDF opens automatically when finished
+
+> **How it works:** Opens a real Chrome browser (via SeleniumBase), scrolls through the score, downloads all page images, and converts them to a vector PDF. Because it runs on your computer with your normal IP address, Cloudflare won't block it.
+
+> **MIDI/MP3 support:** Not yet available in the desktop app. Use the [userscript](#userscript) for those formats.
 
 ### App
 
@@ -123,21 +141,28 @@ The fallback runs **automatically** — no extra steps needed. Prerequisites (in
 
 If `libcairo` is not installed, the fallback produces 72 DPI screenshots instead of vector output.
 
-### GitHub Actions & Web UI (no install)
+### GitHub Actions & Web UI (experimental)
 
-The easiest way to download sheet music — no Node.js, Python, or browser extensions required.
+> ⚠️ **GitHub Actions runners are frequently blocked by Cloudflare.** The [Desktop app](#desktop-app) is more reliable for PDF downloads.
 
-#### Option A: Web UI (easiest)
+The Actions workflow lets you download sheet music from any browser without installing anything.
 
-1. Open the **[GitHub Pages site](https://librescore.github.io/dl-librescore/)**
-2. Paste your GitHub token (needs Actions read/write for this repo)
-3. Paste the MuseScore URL and pick a format
-4. Click **Start Download**
-5. Wait ~30–60 seconds and download the artifact when it appears
+#### Option A: Actions tab (easiest)
 
-> **Tip:** The token is saved only in your browser. Create one at [GitHub Settings → Tokens](https://github.com/settings/tokens/new?scopes=repo&description=Sheet+Music+Downloader).
+1. Go to the **Actions** tab
+2. Select **Download Sheet Music** → **Run workflow**
+3. Paste the URL, pick PDF, click **Run**
+4. Download the artifact when finished
 
-#### Option B: Actions tab
+> **PDF** uses the browser fallback but may fail on Actions due to IP blocking. **MIDI/MP3** works via direct API (if auth is working).
+
+#### Option B: Web UI
+
+1. Open the [GitHub Pages site](https://librescore.github.io/dl-librescore/)
+2. Paste your GitHub token (needs Actions read/write)
+3. Paste the URL, click Download
+
+> The token is saved in your browser. [Create one here](https://github.com/settings/tokens/new?scopes=repo&description=Sheet+Music+Downloader).
 
 1. Go to the repository's **Actions** tab
 2. Select the **Download Sheet Music** workflow
