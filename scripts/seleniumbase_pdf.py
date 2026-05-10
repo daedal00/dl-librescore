@@ -161,6 +161,18 @@ def main() -> int:
 
     status("Opening MuseScore with anti-bot bypass…")
 
+    # Warm-up: start a throwaway browser session to trigger driver download
+    # and patching. On macOS with Apple Silicon, the first navigation after
+    # a fresh driver download can fail with NoSuchWindowException because
+    # the x64 uc_driver (running via Rosetta 2) needs a warm start.
+    # A quick open/close session caches the patched driver so the real
+    # session works reliably.
+    try:
+        with SB(uc=True, headless2=True, test=False) as warmup:
+            warmup.sleep(0.5)
+    except Exception:
+        pass
+
     img_urls: list[str | None] = []
     fallback_shots: list[bytes | None] = []
     dl_futures: list[Future] = []
